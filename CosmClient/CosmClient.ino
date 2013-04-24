@@ -17,6 +17,7 @@
 #include <DHT.h>
 #include <SPI.h>
 #include <Ethernet.h>
+#include <avr/wdt.h>
 
 /* Uncomment the line below to have some Debug messages on the serial line */
 /* #define DEBUG 1 */
@@ -67,12 +68,17 @@ static void readPressureAndAltitude(void);
 static void readHumidity(void);
 static void sendData(const void *thisData, const uint8_t dataType, const char *variableName);
 static uint8_t getLength(const void *someValue, const uint8_t dataType);
+static void halt(void);
+static void wdt_b(void);
+static void wdt_a(void);
+static void watchdogSetup(void);
 
 /************************************************************************************
 * Variables
 ************************************************************************************/
 static bool g_bSendToCosm = false;
 static uint8_t mac[6] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+static uint16_t g_iwdState = 0x0000;              /* watchdog state control variable */
 static float g_fMeanAltitude[2] = {0.0, 0.0};
 static float g_fMeanTemperature[2] = {0.0, 0.0};
 static float g_fMeanRealAltitude[2] = {0.0, 0.0};
@@ -146,6 +152,9 @@ void setup(void)
     myData[4].dataPointer = &g_fMedia_temperatura[1];
     myData[4].dataType = DATA_TYPE_FLOAT;
     myData[4].dataName[0] = '5';
+    
+    /* Setup watchdog to expire after 8 seconds if no reset run. */
+    watchdogSetup();    
 }
 
 /************************************************************************************
@@ -159,6 +168,8 @@ void loop(void)
 {
     static uint8_t idx = 0;
     static bool bEthIsConnected = false;
+    g_iwdState = 0x5555;
+    wdt_a();    
 
     if ((g_bSendToCosm == true)) {        
         if (bEthIsConnected == true) {
@@ -197,6 +208,9 @@ void loop(void)
         readPressureAndAltitude();        
         g_ulLastReadTime = millis();
     }
+
+    g_iwdState += 0x2222;
+    wdt_b();
 }
 
 /************************************************************************************
@@ -379,4 +393,89 @@ static void readPressureAndAltitude(void)
     } else {
         counter++;
     }
+}
+
+/************************************************************************************
+ * Function: static void watchdogSetup(void)
+ * Description: Setup watchdog.
+ * Notes: Configs WD to reset the system if a reset is not run in 8 secs.
+ ************************************************************************************/
+static void watchdogSetup(void)
+{
+    /* Disables all interrupts */
+    cli();
+
+    /* Reset the watchdog timer */
+    wdt_reset();
+    /* WDTCSR configuration: 
+     WDIE = 1 :Interrupt Enable
+     WDE  = 1 :Reset Enable
+     See table for time-out variations:
+     WDP3 = 1 :For 8000ms Time-out
+     WDP2 = 0 :For 8000ms Time-out
+     WDP1 = 0 :For 8000ms Time-out
+     WDP0 = 1 :For 8000ms Time-out */
+
+    /* Enter Watchdog Configuration mode: */
+    WDTCSR |= (1 << WDCE) | (1 << WDE);
+    /* Setup watchdog bits to 8000 ms*/
+    WDTCSR = (1 << WDIE) | (1 << WDE) |(1 << WDP3) | (0 << WDP2) | (0 << WDP1) | (1 << WDP0);
+
+    /* Reenable system interrupts. */
+    sei();
+}
+
+/************************************************************************************
+ * Function: static void wdt_a(void)
+ * Description: Checks if watchdog state is consistent, if not halt system.
+ * Notas:
+ ************************************************************************************/
+static void wdt_a(void)
+{
+    if (g_iwdState != 0x5555)
+        halt();
+
+    /* reset the watchdog counter */
+    wdt_reset();
+    g_iwdState += 0x1111;
+}
+
+/************************************************************************************
+ * Function: static void wdt_b(void)
+ * Description: Checks if watchdog state is consistent, if not halt system.
+ * Notas:
+ ************************************************************************************/
+static void wdt_b(void)
+{
+    if (g_iwdState != 0x8888)
+        halt();
+
+    /* reset the watchdog counter */
+    wdt_reset();
+
+    if (g_iwdState != 0x8888)
+        halt();
+
+    g_iwdState = 0;
+}
+
+/************************************************************************************
+ * Function: static void halt(void)
+ * Description: If something goes wrong in the consistency check do nothing until
+ *              system is reseted.
+ * Notass:
+ ************************************************************************************/
+static void halt(void)
+{
+    while (1);
+}
+
+/************************************************************************************
+ * Function: ISR(WDT_vect)
+ * Description: Code executed when the time wd time expired, a interrupt will be enabled.
+ * Notas: Do not put any code that can hang the execution.
+ ************************************************************************************/
+ISR(WDT_vect)
+{
+    /* Save something important */
 }
