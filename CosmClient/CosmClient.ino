@@ -58,8 +58,10 @@ typedef struct {
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_BMP085 bmp;
 EthernetClient client;
-const IPAddress ip(192,168,2,3);
-const IPAddress server(216,52,233,121);
+const IPAddress ip(192,168,2,3);        /* My ip address, here fixed   */
+const IPAddress adns(192,168,1,1);      /* DNS server on the network   */
+const IPAddress gw(192,168,2,1);        /* Gateway                     */
+const IPAddress server(216,52,233,121); /* Cosm server ip to avoid dns */
 
 /************************************************************************************
 * Prototypes
@@ -101,25 +103,22 @@ void setup(void)
 #ifdef DEBUG
     Serial.begin(9600);
 #endif
-    if (Ethernet.begin(mac) == 0) {
+    /* Initialize the Ethernet shield with MAC, IP and set DNS and gateway */
+    Ethernet.begin(mac, ip, adns, gw);
 #ifdef DEBUG
-        Serial.println("Failed using DHCP");
-#endif        
-        /* DHCP failed, so use a fixed IP address. */
-        Ethernet.begin(mac, ip);
-    }
-
-#ifdef DEBUG
-    Serial.print("IP: ");    
+    Serial.print("IP: ");
     Serial.println(Ethernet.localIP());
-#endif 
+#endif
+
+    /* Initialize the humidity and temperature sensor board */
     if (!dht.begin()) {
 #ifdef DEBUG
         Serial.println("Could not find DHT22!");
 #endif
     	while (1) {}
     }
-  
+
+    /* Initialize the barometric sensor board */
     if (!bmp.begin()) {
 #ifdef DEBUG
         Serial.println("Could not find BMP085!");
